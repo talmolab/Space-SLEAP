@@ -2,7 +2,7 @@
 #Then on undistortion parameters via the video undistortion pipeline https://github.com/talmolab/spacecage-undistort
 !pip install sleap-io
 
-!git clone https://github.com/LeoMeow123/spacecage-undistort
+!git clone https://github.com/talmolab/spacecage-undistort
 %cd spacecage-undistort
 !git switch -c master origin/master
 !pip install .
@@ -78,12 +78,10 @@ for raw_video in labels.videos:
             inst_adjusted = inst.from_numpy(pts, skeleton=inst.skeleton, track=inst.track, tracking_score=inst.tracking_score)
             insts.append(inst_adjusted)
         lf.instances = insts
-
       
 #Updated associated videos
 labels.replace_filenames(filename_map={src: dst for _, (src, dst) in videos_md[["source_video", "target_video"]].iterrows()})
 labels.videos
-
 
 #Save the translated labels
 Path(new_labels_path).parent.mkdir(parents=True, exist_ok=True)
