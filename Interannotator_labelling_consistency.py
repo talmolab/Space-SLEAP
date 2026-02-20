@@ -1,6 +1,6 @@
 !pip install sleap-io
 
-!git clone https://github.com/LeoMeow123/spacecage-undistort
+!git clone https://github.com/talmolab/spacecage-undistort
 %cd spacecage-undistort
 !git switch -c master origin/master
 !pip install .
@@ -13,17 +13,35 @@ import seaborn as sns
 from pathlib import Path
 import itertools
 import copy
+from shutil import copyfile
 import sleap_io as sio
+import cv2
+from tqdm import tqdm
 from scipy.optimize import linear_sum_assignment
 from spacecage_undistort import transform_slp_coordinates
 
+#Translate annotation coordinates to standardized videos (see https://github.com/talmolab/Space-SLEAP/blob/main/Standardize%20Archived%20Videos.py)
+#(annotations were performed on original unedited videos)
+raw_videos_folder = "Path/to/Raw/Videos"
+new_videos_folder = "Path/to/Standardized/Videos"
 
-#Apply undistortion to annotations of the original SLEAP files of each annotator (annotations were performed on original unedited videos)
-#Group annotators
-gdrive_root_prefix = Path("/content/drive/MyDrive/nasa")
-save_dir = gdrive_root_prefix / "NASA Project/2025-11-19 - Consistency analysis v6"
+videos_md = pd.read_csv(new_videos_folder / "metadata.csv")
+slp_files = """
+/AmisihiBasic 022624.v001.slp
+/BlakeBasic.slp
+/FredBasic.slp
+/Julianbasic.slp
+/Shambhabibasic.slp
+/Svanikbasic_labels.v001.slp
+/MarielaBasic.slp
+/Arthurbasic.slp
+/Marlubasic.slp
+""".strip().split("\n")
+
+save_dir = "desired/path/for/standardized/labels"
 save_dir.mkdir(parents=True, exist_ok=True)
 
+#Group annotators
 annotators = [
     "Amisihi",
     "Blake",
@@ -35,6 +53,67 @@ annotators = [
     "Arthur",
     "Marlu",
 ]
+
+for annotator, old_labels_path in zip(annotators, slp_files):
+    new_labels_path = save_dir / f"{annotator}.slp"
+
+    # Load and fix filenames.
+    labels = sio.load_file(old_labels_path)
+
+    # Check that all old videos were found and have corresponding rescaled one.
+    data_check = []
+    for video in labels.videos:
+        data_check.append({
+            "video": video.filename,
+            "exists": video.exists(),
+            "has_rescaled": videos_md.source_video.str.contains(video.filename).any(),
+        })
+
+    data_check = pd.DataFrame(data_check)
+    assert data_check.exists.all()
+    assert data_check.has_rescaled.all()
+
+    for old_video in labels.videos:
+
+        # Find frames that correspond to this video.
+        lfs = [lf for lf in labels if lf.video == old_video]
+
+        # Get rescaling metadata.
+        md = videos_md.loc[videos_md.source_video == old_video.filename]
+        if len(md) == 0:
+            print(f"No metadata found for {old_video.filename}")
+            continue
+        md = md.iloc[0]
+        x_offset, y_offset = float(md["x_offset"]), float(md["y_offset"])
+        x_scale = md["target_width"] / md["crop_width"]
+        y_scale = md["target_height"] / md["crop_height"]
+
+        # Update the points.
+        for lf in lfs:
+            insts = []
+            for inst in lf:
+                pts = inst.numpy()
+                pts[:, 0] -= x_offset
+                pts[:, 1] -= y_offset
+                pts[:, 0] *= x_scale
+                pts[:, 1] *= y_scale
+
+                inst_adjusted = inst.from_numpy(pts, skeleton=inst.skeleton, track=inst.track, tracking_score=inst.tracking_score)
+                insts.append(inst_adjusted)
+            lf.instances = insts
+
+    # Update videos.
+    labels.replace_filenames(filename_map={src: dst for _, (src, dst) in videos_md[["source_video", "target_video"]].iterrows()})
+
+    # Save the updated labels.
+    Path(new_labels_path).parent.mkdir(parents=True, exist_ok=True)
+    labels.save(new_labels_path)
+    print(f"Saved: {new_labels_path}")
+
+
+#Apply undistortion to annotations of the original SLEAP files of each annotator (see https://github.com/talmolab/spacecage-undistort)
+save_dir = "desired/path/for/undistorted/labels
+save_dir.mkdir(parents=True, exist_ok=True)
 
 slp_files = [save_dir / "annotators" / f"{ann}.slp" for ann in annotators]
 slp_files
