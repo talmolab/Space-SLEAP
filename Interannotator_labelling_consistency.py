@@ -260,26 +260,24 @@ for instance_set_idx, instance_set in enumerate(instance_sets):
                 row[k] = v
         df_rows.append(row)
 
-df = pd.DataFrame(df_rows)
+MD = pd.DataFrame(df_rows)
 
 node_names = slps[0].skeleton.node_names
 
-expanded_points = df['points'].apply(lambda x: [coord for sublist in x for coord in sublist])
+expanded_points = MD['points'].apply(lambda x: [coord for sublist in x for coord in sublist])
 
 new_col_names = []
 for node_name in node_names:
     new_col_names.append(f'{node_name}_x')
     new_col_names.append(f'{node_name}_y')
 
-expanded_points_df = pd.DataFrame(expanded_points.tolist(), columns=new_col_names, index=df.index)
+expanded_points_df = pd.DataFrame(expanded_points.tolist(), columns=new_col_names, index=MD.index)
 
-df = pd.concat([df, expanded_points_df], axis=1)
+MD = pd.concat([MD, expanded_points_df], axis=1)
 
-df = df.drop(columns=['points'])
+MD = MD.drop(columns=['points'])
 
-display(df)
-
-df.to_csv("/path/to/your/drive/interannotator_consistency_dataset.csv", index=False)
+display(MD)
 
 
 #Visualize consensus point and points for all annotators
@@ -633,7 +631,37 @@ for instance_set_ind, instance_set in enumerate(instance_sets):
 consistency_df = pd.DataFrame(consistency_df)
 consistency_df
 
-consistency_df.to_csv("/Your/Path/Here/Archival Misc/consistency.csv")
+#Merge consistency output metadata with the annotator labels metadata
+temp_consistency_df = consistency_df.copy()
+temp_consistency_df['video_filename'] = temp_consistency_df['video_filename'].apply(lambda x: Path(x).name)
+
+merge_cols = ['slp_ind', 'annotator', 'lf_ind', 'frame_idx', 'video_ind',
+              'video_filename', 'instance_ind', 'frame_set_ind',
+              'within_frame_set_ind', 'instance_set_ind', 'area', 'delta', 'consensus']
+
+MD = pd.merge(MD, temp_consistency_df[merge_cols],
+              on=['slp_ind', 'annotator', 'lf_ind', 'frame_idx', 'video_ind',
+                  'video_filename', 'instance_ind', 'frame_set_ind',
+                  'within_frame_set_ind', 'instance_set_ind'],
+              how='left')
+
+node_names = slps[0].skeleton.node_names
+
+consensus_col_names = []
+for node_name in node_names:
+    consensus_col_names.append(f'consensus_{node_name}_x')
+    consensus_col_names.append(f'consensus_{node_name}_y')
+
+expanded_consensus = MD['consensus'].apply(lambda x: [coord for sublist in x for coord in sublist])
+expanded_consensus_df = pd.DataFrame(expanded_consensus.tolist(), columns=consensus_col_names, index=MD.index)
+
+MD = pd.concat([MD, expanded_consensus_df], axis=1)
+
+MD = MD.drop(columns=['consensus'])
+
+display(MD)
+
+MD.to_csv("/Path/to/your/directory/interannotator_consistency_dataset.csv", index=False)
 
 
 #Visualize mean distance to consensus by labeller
