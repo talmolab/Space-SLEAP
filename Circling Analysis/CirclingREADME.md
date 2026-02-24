@@ -148,6 +148,7 @@ Overhead view (XZ):
 ## Dependencies
 
 ```
+python = ">=3.10"
 sleap-io
 skia-python
 numpy
