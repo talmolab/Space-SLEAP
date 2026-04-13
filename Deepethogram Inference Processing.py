@@ -651,6 +651,168 @@ Hists.figure.suptitle("Duration Distribution for Each Behavior", ha="center", x=
 
 #==========Make longitudinal ethogram of both labels and inferences, stacked=========
 
+
+
+#Align both labels and predictions to metadata
+prediction_files = glob.glob(os.path.join(project_dir, '**', '*_predictions.csv'), recursive=True)
+label_files = glob.glob(os.path.join(project_dir, '**', '*_labels.csv'), recursive=True)
+
+associated_data = []
+
+# Process prediction files
+for file_path in prediction_files:
+    # Extract the base name and remove the '_predictions.csv' suffix
+    base_file_name_with_suffix = os.path.basename(file_path).replace('_predictions.csv', '')
+
+    # Extract the part before the last underscore followed by 'Feeder' or 'Filter'
+    base_file_name = base_file_name_with_suffix
+    for suffix in ['_Feeder', '_Filter', '-Feeder', '_feeder']:
+        base_file_name_parts = base_file_name.rsplit(suffix, 1)
+        if len(base_file_name_parts) > 1:
+            base_file_name = base_file_name_parts[0]
+            break # Stop after finding the first matching suffix
+
+
+    metadata_match = VideoMeta[VideoMeta['Original File Name'] == base_file_name]
+
+    if not metadata_match.empty:
+        # Assuming there's only one match per file name
+        metadata_row = metadata_match.iloc[0]
+        associated_data.append({
+            'file_path': file_path,
+            'data_type': 'prediction', # Add a column to distinguish data type
+            'Day': metadata_row['Day'],
+            'Recording Date': metadata_row['Recording Date'],
+            'Location': metadata_row['Location'],
+            'Light Cycle Phase': metadata_row['Light Cycle Phase'],
+            'original_file': base_file_name_with_suffix # Include the extracted original file name here
+        })
+    else:
+        print(f"Metadata not found for prediction file: {base_file_name_with_suffix}")
+
+# Process label files
+for file_path in label_files:
+    # Extract the base name and remove the '_labels.csv' suffix
+    base_file_name_with_suffix = os.path.basename(file_path).replace('_labels.csv', '')
+
+    # Extract the part before the last underscore followed by 'Feeder' or 'Filter'
+    base_file_name = base_file_name_with_suffix
+    for suffix in ['_Feeder', '_Filter', '-Feeder', '_feeder']:
+        base_file_name_parts = base_file_name.rsplit(suffix, 1)
+        if len(base_file_name_parts) > 1:
+            base_file_name = base_file_name_parts[0]
+            break # Stop after finding the first matching suffix
+
+
+    metadata_match = VideoMeta[VideoMeta['Original File Name'] == base_file_name]
+
+    if not metadata_match.empty:
+        # Assuming there's only one match per file name
+        metadata_row = metadata_match.iloc[0]
+        associated_data.append({
+            'file_path': file_path,
+            'data_type': 'label', # Add a column to distinguish data type
+            'Day': metadata_row['Day'],
+            'Recording Date': metadata_row['Recording Date'],
+            'Location': metadata_row['Location'],
+            'Light Cycle Phase': metadata_row['Light Cycle Phase'],
+            'original_file': base_file_name_with_suffix # Include the extracted original file name here
+        })
+    else:
+        print(f"Metadata not found for label file: {base_file_name_with_suffix}")
+
+
+associated_df = pd.DataFrame(associated_data)
+
+# --- Debugging Step: Display associated_df ---
+print("\nAssociated DataFrame:")
+display(associated_df.head())
+display(associated_df['data_type'].value_counts())
+# --- End Debugging Step ---
+
+# Now that associated_df is created, proceed with processing each file
+processed_data = []
+
+for index, row in associated_df.iterrows():
+    file_path = row['file_path']
+    data_type = row['data_type']
+    metadata = {
+        'Day': row['Day'],
+        'Light Cycle Phase': row['Light Cycle Phase'],
+        'original_file': row['original_file'],
+        'data_type': data_type # Include data_type in metadata for processing
+    }
+
+    try:
+        current_df = pd.read_csv(file_path)
+
+        # Ensure the first column is treated as original_frame and is numeric
+        current_df.iloc[:, 0] = pd.to_numeric(current_df.iloc[:, 0], errors='coerce')
+        current_df.dropna(subset=[current_df.columns[0]], inplace=True) # Drop rows where original_frame couldn't be converted
+
+        # Assuming columns other than the first one are behavior probabilities/labels
+        behavior_columns = current_df.columns[1:].tolist()
+
+        # Process only if there are valid numeric original_frame values
+        if not current_df.empty:
+            for _, data_row in current_df.iterrows():
+                original_frame = data_row.iloc[0] # Keep original_frame as numeric before int conversion
+
+                # Ensure original_frame is not NaN and is an integer before proceeding
+                if pd.notna(original_frame) and original_frame == int(original_frame):
+                    original_frame_int = int(original_frame)
+
+                    for behavior_col in behavior_columns: # Iterate through all behavior columns
+                        # For prediction data, consider behavior as occurring if probability > 0
+                        # For label data, consider behavior as occurring if value is 1 (or > 0 if it's probability)
+                        # Add a check to ensure the behavior column exists and is numeric before accessing
+                        if behavior_col in data_row and pd.api.types.is_numeric_dtype(pd.Series(data_row[behavior_col])):
+                             if data_type == 'prediction' and data_row[behavior_col] > 0:
+                                  processed_data.append({
+                                      'original_frame': original_frame_int,
+                                      'behavior': behavior_col, # Store behavior name in a single column
+                                      'data_type': data_type,
+                                      'Day': metadata['Day'],
+                                      'Light Cycle Phase': metadata['Light Cycle Phase'],
+                                      'original_file': metadata['original_file']
+                                  })
+                             elif data_type == 'label' and data_row[behavior_col] > 0: # Assuming label values are 1 for presence
+                                  processed_data.append({
+                                      'original_frame': original_frame_int,
+                                      'behavior': behavior_col, # Store behavior name in a single column
+                                      'data_type': data_type,
+                                      'Day': metadata['Day'],
+                                      'Light Cycle Phase': metadata['Light Cycle Phase'],
+                                      'original_file': metadata['original_file']
+                                  })
+                        # Optionally, add a message if a behavior column is missing or not numeric
+                        # else:
+                        #     print(f"Warning: Behavior column '{behavior_col}' missing or not numeric in file {file_path}")
+
+
+        else:
+            print(f"Skipping processing file {file_path} due to no valid original_frame data.")
+
+
+    except Exception as e:
+        print(f"Error processing file {file_path}: {e}")
+        # Continue to the next file even if one fails
+
+# Convert the list of processed data into a DataFrame
+# This DataFrame will have rows for both predicted and labeled behaviors
+processed_df = pd.DataFrame(processed_data)
+
+# Rename the 'behavior' column to make it clear
+processed_df.rename(columns={'behavior': 'behavior_name'}, inplace=True)
+
+
+# Display the head and info of the processed DataFrame to verify
+display(processed_df.head())
+display(processed_df.info())
+display(processed_df['data_type'].value_counts())
+
+
+
 #Create a new global frame index that overlaps index for the same name files regardless of label or prediction
 # Define categorical order for Light Cycle Phase to ensure correct sorting
 light_cycle_order = pd.CategoricalDtype(['Light', 'Dark'], ordered=True)
